@@ -40,13 +40,13 @@ class PegawaiInfo {
   String get privilegeLabel {
     switch (privilege) {
       case 0:
-        return 'User';
+        return 'Guest';
       case 1:
-        return 'Enroller';
+        return 'User';
       case 2:
         return 'Manager';
       case 3:
-        return 'Admin';
+        return 'Supervisor';
       case 14:
         return 'Super Admin';
       default:

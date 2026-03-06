@@ -16,10 +16,10 @@ class PegawaiView extends GetView<PegawaiController> {
   static const Color _textGray = Color(0xFF718096);
 
   static const List<Map<String, dynamic>> _privilegeOptions = [
-    {'value': '0', 'label': 'User'},
-    {'value': '1', 'label': 'Enroller'},
+    {'value': '0', 'label': 'Guest'},
+    {'value': '1', 'label': 'User'},
     {'value': '2', 'label': 'Manager'},
-    {'value': '3', 'label': 'Admin'},
+    {'value': '3', 'label': 'Supervisor'},
     {'value': '14', 'label': 'Super Admin'},
   ];
 
