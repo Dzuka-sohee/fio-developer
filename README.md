@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://flutter.dev" target="_blank">
-    <img src="https://storage.googleapis.com/cms-storage-bucket/0dbfcc7a59cd1cf16171.png" width="400" alt="Flutter Logo">
+    <img src="assets/images/flutter-logo.png" width="400" alt="Flutter Logo">
   </a>
 </p>
 
