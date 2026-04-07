@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AttendanceLog {
   final String pin;
@@ -39,6 +40,17 @@ class AttendanceLog {
       verifyMode: map['verify']?.toString() ?? '-',
       inOut: statusScan,
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'pin': pin,
+      'date': date,
+      'time': time,
+      'verifyMode': verifyMode,
+      'inOut': inOut,
+      'status': inOut == '0' ? 'Masuk' : 'Keluar',
+    };
   }
 }
 
@@ -83,6 +95,30 @@ class LaporanController extends GetxController {
     return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
+  // Simpan data ke Firestore
+  Future<void> _saveToFirestore(List<AttendanceLog> parsedLogs) async {
+    try {
+      final firestore = FirebaseFirestore.instance;
+      final batch = firestore.batch();
+      final collection = firestore.collection('laporan_kehadiran');
+
+      for (final log in parsedLogs) {
+        // Gunakan kombinasi pin+date+time sebagai document ID agar tidak duplikat
+        final docId = '${log.pin}_${log.date}_${log.time}'.replaceAll(':', '-');
+        final docRef = collection.doc(docId);
+        batch.set(docRef, {
+          ...log.toMap(),
+          'savedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      await batch.commit();
+    } catch (e) {
+      // Tidak mengganggu tampilan jika Firestore gagal
+      print('Firestore save error: $e');
+    }
+  }
+
   Future<void> fetchLaporan() async {
     try {
       isLoading.value = true;
@@ -125,6 +161,9 @@ class LaporanController extends GetxController {
               parsedLogs.where((l) => l.inOut == '0').length;
           totalOut.value =
               parsedLogs.where((l) => l.inOut == '1').length;
+
+          // Simpan ke Firestore setelah data berhasil dimuat
+          await _saveToFirestore(parsedLogs);
         } else {
           logs.clear();
           totalRecords.value = 0;
