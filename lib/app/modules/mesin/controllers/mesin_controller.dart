@@ -50,7 +50,7 @@ class MesinController extends GetxController {
       'https://developer.fingerspot.io/api/set_time';
 
   static const String _webhookTokenId =
-      'a09a238b-bbcd-4c1b-bd89-291a9378fba2';
+      '28a645f8-dc6e-404e-a4f9-26725ff30d14';
   static const String _webhookLatestUrl =
       'https://webhook.site/token/$_webhookTokenId/request/latest';
 

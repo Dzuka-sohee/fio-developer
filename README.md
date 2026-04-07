@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://flutter.dev" target="_blank">
-    <img src="assets/images/flutter-logo.png" width="300" alt="Flutter Logo">
+    <img src="assets/images/flutter-logo.png" width="250" alt="Flutter Logo">
   </a>
 </p>
 
@@ -49,7 +49,7 @@ flutter run
 
 ## Configuration
 
-Sebelum menjalankan aplikasi, pastikan kamu mengatur variabel BaseUrl API, Token API, dan Cloud ID pada Controllers Mesin, Pegawai, dan Laporan:
+Sebelum menjalankan aplikasi, pastikan kamu mengatur variabel di function GetxController yaitu BaseUrl API, Token API, dan Cloud ID pada Controllers Mesin, Pegawai, dan Laporan menjadi Token API dan Cloud ID masing masing akun developer fingerspot.io:
 
 ```env
   static const String _baseUrl =

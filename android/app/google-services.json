@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "959300672732",
+    "project_id": "fio-developer",
+    "storage_bucket": "fio-developer.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:959300672732:android:5ac667510cdaa301796819",
+        "android_client_info": {
+          "package_name": "com.fiodev.fio_developer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD6sXV7xqIoUx1nkJzpjZXT2enjYBDtZaM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
