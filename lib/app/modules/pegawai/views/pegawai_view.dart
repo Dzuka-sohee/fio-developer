@@ -59,11 +59,10 @@ class PegawaiView extends GetView<PegawaiController> {
       title: const Text(
         'Data Pegawai',
         style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w700,
-          fontSize: 18,
-          letterSpacing: 0.3,
-        ),
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+            letterSpacing: 0.3),
       ),
       actions: [
         Obx(() => controller.isLoading.value
@@ -321,21 +320,55 @@ class PegawaiView extends GetView<PegawaiController> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () =>
-                        _showFormDialog(context, isEdit: true, existing: p),
-                    icon: const Icon(Icons.edit_rounded, size: 16),
-                    label: const Text('Edit Data Pegawai'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _primary,
-                      side: const BorderSide(color: _primary),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+
+                // Tombol Edit & Hapus berdampingan
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showFormDialog(context,
+                            isEdit: true, existing: p),
+                        icon: const Icon(Icons.edit_rounded, size: 16),
+                        label: const Text('Edit'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _primary,
+                          side: const BorderSide(color: _primary),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Obx(() => ElevatedButton.icon(
+                            onPressed: controller.isDeleting.value
+                                ? null
+                                : () => _showDeleteConfirmDialog(context, p),
+                            icon: controller.isDeleting.value
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                        color: Colors.white, strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.delete_rounded, size: 16),
+                            label: Text(controller.isDeleting.value
+                                ? 'Menghapus...'
+                                : 'Hapus'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _danger,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor:
+                                  _danger.withOpacity(0.6),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          )),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -343,7 +376,7 @@ class PegawaiView extends GetView<PegawaiController> {
 
           const SizedBox(height: 16),
 
-          // ── Biometrik stat cards ──────────────────────
+          // ── Biometrik ─────────────────────────────────
           _buildSectionTitle('Biometrik'),
           const SizedBox(height: 8),
           Row(
@@ -370,7 +403,7 @@ class PegawaiView extends GetView<PegawaiController> {
 
           const SizedBox(height: 16),
 
-          // ── Informasi detail ──────────────────────────
+          // ── Informasi Detail ──────────────────────────
           _buildSectionTitle('Informasi Detail'),
           const SizedBox(height: 8),
           Container(
@@ -393,7 +426,9 @@ class PegawaiView extends GetView<PegawaiController> {
                     isFirst: true),
                 _divider(),
                 _infoRow(
-                    icon: Icons.person_rounded, label: 'Nama', value: p.name),
+                    icon: Icons.person_rounded,
+                    label: 'Nama',
+                    value: p.name),
                 _divider(),
                 _infoRow(
                     icon: Icons.admin_panel_settings_rounded,
@@ -412,6 +447,145 @@ class PegawaiView extends GetView<PegawaiController> {
                     isLast: true),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  KONFIRMASI HAPUS
+  // ─────────────────────────────────────────────────────────────────
+
+  void _showDeleteConfirmDialog(BuildContext context, PegawaiInfo p) {
+    controller.clearDeleteMessage();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Icon warning
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: _danger.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.delete_forever_rounded,
+                  color: _danger, size: 30),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Hapus Pegawai?',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: _textDark),
+            ),
+            const SizedBox(height: 8),
+            RichText(
+              textAlign: TextAlign.center,
+              text: TextSpan(
+                style: const TextStyle(
+                    fontSize: 14, color: _textGray, height: 1.5),
+                children: [
+                  const TextSpan(text: 'Data pegawai '),
+                  TextSpan(
+                    text: p.name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, color: _textDark),
+                  ),
+                  const TextSpan(text: ' dengan PIN '),
+                  TextSpan(
+                    text: p.pin,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, color: _primary),
+                  ),
+                  const TextSpan(
+                      text:
+                          ' akan dihapus dari mesin absensi.\n\nTindakan ini tidak dapat dibatalkan.'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Feedback setelah aksi (error/sukses)
+            Obx(() {
+              if (controller.deleteMessage.value.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return _buildFeedbackBanner(
+                message: controller.deleteMessage.value,
+                isSuccess: controller.deleteSuccess.value,
+                bottomPadding: 0,
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+        ),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () {
+                    controller.clearDeleteMessage();
+                    Navigator.pop(ctx);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _textGray,
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Batal'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Obx(() => ElevatedButton.icon(
+                      onPressed: controller.isDeleting.value
+                          ? null
+                          : () async {
+                              final success =
+                                  await controller.deletePegawai(p.pin);
+                              if (success) {
+                                await Future.delayed(
+                                    const Duration(milliseconds: 800));
+                                Navigator.pop(ctx);
+                                controller.reset();
+                              }
+                            },
+                      icon: controller.isDeleting.value
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                  color: Colors.white, strokeWidth: 2),
+                            )
+                          : const Icon(Icons.delete_rounded, size: 16),
+                      label: Text(controller.isDeleting.value
+                          ? 'Menghapus...'
+                          : 'Ya, Hapus'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _danger,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: _danger.withOpacity(0.6),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    )),
+              ),
+            ],
           ),
         ],
       ),
@@ -455,7 +629,8 @@ class PegawaiView extends GetView<PegawaiController> {
         child: Container(
           decoration: const BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius:
+                BorderRadius.vertical(top: Radius.circular(24)),
           ),
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
           child: SingleChildScrollView(
@@ -492,7 +667,9 @@ class PegawaiView extends GetView<PegawaiController> {
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      isEdit ? 'Edit Data Pegawai' : 'Tambah Pegawai Baru',
+                      isEdit
+                          ? 'Edit Data Pegawai'
+                          : 'Tambah Pegawai Baru',
                       style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -515,9 +692,10 @@ class PegawaiView extends GetView<PegawaiController> {
                         icon: Icons.tag_rounded,
                         keyboardType: TextInputType.number,
                         readOnly: isEdit,
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'PIN wajib diisi'
-                            : null,
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty)
+                                ? 'PIN wajib diisi'
+                                : null,
                       ),
                       const SizedBox(height: 14),
                       _buildFormField(
@@ -525,9 +703,10 @@ class PegawaiView extends GetView<PegawaiController> {
                         label: 'Nama',
                         hint: 'Masukkan nama pegawai',
                         icon: Icons.person_rounded,
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Nama wajib diisi'
-                            : null,
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty)
+                                ? 'Nama wajib diisi'
+                                : null,
                       ),
                       const SizedBox(height: 14),
 
@@ -565,11 +744,10 @@ class PegawaiView extends GetView<PegawaiController> {
                                             size: 18),
                                         const SizedBox(width: 10),
                                         Text(
-                                          '${opt['label']} (${opt['value']})',
-                                          style: const TextStyle(
-                                              fontSize: 14,
-                                              color: _textDark),
-                                        ),
+                                            '${opt['label']} (${opt['value']})',
+                                            style: const TextStyle(
+                                                fontSize: 14,
+                                                color: _textDark)),
                                       ],
                                     ),
                                   );
@@ -583,7 +761,6 @@ class PegawaiView extends GetView<PegawaiController> {
                             ),
                           )),
                       const SizedBox(height: 14),
-
                       _buildFormField(
                         controller: passCtrl,
                         label: 'Password',
@@ -609,7 +786,7 @@ class PegawaiView extends GetView<PegawaiController> {
 
                 const SizedBox(height: 20),
 
-                // ── Pesan simpan ──────────────────────────
+                // Feedback simpan
                 Obx(() {
                   if (controller.saveMessage.value.isEmpty) {
                     return const SizedBox.shrink();
@@ -621,7 +798,7 @@ class PegawaiView extends GetView<PegawaiController> {
                   );
                 }),
 
-                // ── Tombol aksi ───────────────────────────
+                // Tombol aksi
                 Row(
                   children: [
                     Expanded(
@@ -633,8 +810,7 @@ class PegawaiView extends GetView<PegawaiController> {
                         },
                         style: OutlinedButton.styleFrom(
                           foregroundColor: _textGray,
-                          side:
-                              BorderSide(color: Colors.grey.shade300),
+                          side: BorderSide(color: Colors.grey.shade300),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10)),
                           padding:
@@ -710,12 +886,11 @@ class PegawaiView extends GetView<PegawaiController> {
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  SECTION REGISTRASI BIOMETRIK
+  //  SEKSI REGISTRASI BIOMETRIK
   // ─────────────────────────────────────────────────────────────────
 
   Widget _buildBiometricSection(
       BuildContext context, TextEditingController pinCtrl) {
-    // Kelompokkan jari, wajah, vein
     final fingers = PegawaiController.biometricTypes
         .where((b) => int.parse(b.code) <= 9)
         .toList();
@@ -733,7 +908,6 @@ class PegawaiView extends GetView<PegawaiController> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header seksi
           Row(
             children: [
               Container(
@@ -745,13 +919,11 @@ class PegawaiView extends GetView<PegawaiController> {
                     color: _purple, size: 18),
               ),
               const SizedBox(width: 10),
-              const Text(
-                'Registrasi Biometrik',
-                style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: _textDark),
-              ),
+              const Text('Registrasi Biometrik',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: _textDark)),
             ],
           ),
           const SizedBox(height: 6),
@@ -759,54 +931,44 @@ class PegawaiView extends GetView<PegawaiController> {
             'Kirim perintah registrasi ke mesin absensi. Pegawai kemudian melakukan scan di mesin.',
             style: TextStyle(fontSize: 12, color: _textGray),
           ),
-
           const SizedBox(height: 16),
 
-          // ── Sidik jari ────────────────────────────────
-          _bioGroupLabel(
-              Icons.fingerprint_rounded, 'Sidik Jari', _primary),
+          _bioGroupLabel(Icons.fingerprint_rounded, 'Sidik Jari', _primary),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: fingers.map((b) {
-              return _biometricChipButton(
-                context: context,
-                bio: b,
-                pinCtrl: pinCtrl,
-                color: _primary,
-              );
-            }).toList(),
+            children: fingers
+                .map((b) => _biometricChipButton(
+                    context: context,
+                    bio: b,
+                    pinCtrl: pinCtrl,
+                    color: _primary))
+                .toList(),
           ),
-
           const SizedBox(height: 14),
 
-          // ── Wajah & Vein ─────────────────────────────
-          _bioGroupLabel(
-              Icons.face_rounded, 'Wajah & Vein', _purple),
+          _bioGroupLabel(Icons.face_rounded, 'Wajah & Vein', _purple),
           const SizedBox(height: 8),
           Row(
             children: others.map((b) {
               final color = b.code == '12' ? _purple : _warning;
               return Expanded(
                 child: Padding(
-                  padding: EdgeInsets.only(
-                      right: b == others.last ? 0 : 8),
+                  padding:
+                      EdgeInsets.only(right: b == others.last ? 0 : 8),
                   child: _biometricChipButton(
-                    context: context,
-                    bio: b,
-                    pinCtrl: pinCtrl,
-                    color: color,
-                    fullWidth: true,
-                  ),
+                      context: context,
+                      bio: b,
+                      pinCtrl: pinCtrl,
+                      color: color,
+                      fullWidth: true),
                 ),
               );
             }).toList(),
           ),
-
           const SizedBox(height: 12),
 
-          // ── Feedback registrasi ───────────────────────
           Obx(() {
             if (controller.bioMessage.value.isEmpty) {
               return const SizedBox.shrink();
@@ -844,14 +1006,12 @@ class PegawaiView extends GetView<PegawaiController> {
   }) {
     return Obx(() {
       final isLoading = controller.isRegBio.value;
-
       return SizedBox(
         width: fullWidth ? double.infinity : null,
         child: OutlinedButton(
           onPressed: isLoading
               ? null
               : () async {
-                  // Jika PIN di field kosong, ingatkan user
                   if (pinCtrl.text.trim().isEmpty) {
                     controller.bioMessage.value =
                         'Isi PIN terlebih dahulu sebelum registrasi biometrik.';
@@ -876,13 +1036,11 @@ class PegawaiView extends GetView<PegawaiController> {
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8)),
           ),
-          child: Text(
-            bio.label,
-            style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isLoading ? Colors.grey : color),
-          ),
+          child: Text(bio.label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isLoading ? Colors.grey : color)),
         ),
       );
     });
@@ -915,22 +1073,18 @@ class PegawaiView extends GetView<PegawaiController> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            isSuccess
-                ? Icons.check_circle_rounded
-                : Icons.error_rounded,
+            isSuccess ? Icons.check_circle_rounded : Icons.error_rounded,
             color: isSuccess ? _success : _danger,
             size: 18,
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              message,
-              style: TextStyle(
-                color: isSuccess ? _success : _danger,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            child: Text(message,
+                style: TextStyle(
+                  color: isSuccess ? _success : _danger,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                )),
           ),
         ],
       ),
@@ -966,20 +1120,16 @@ class PegawaiView extends GetView<PegawaiController> {
               fontSize: 14, color: readOnly ? _textGray : _textDark),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle:
-                const TextStyle(color: _textGray, fontSize: 14),
+            hintStyle: const TextStyle(color: _textGray, fontSize: 14),
             prefixIcon: Icon(icon, color: _primary, size: 18),
             filled: true,
-            fillColor:
-                readOnly ? Colors.grey.shade100 : _bg,
+            fillColor: readOnly ? Colors.grey.shade100 : _bg,
             border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide:
-                    BorderSide(color: Colors.grey.shade200)),
+                borderSide: BorderSide(color: Colors.grey.shade200)),
             enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide:
-                    BorderSide(color: Colors.grey.shade200)),
+                borderSide: BorderSide(color: Colors.grey.shade200)),
             focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide:
@@ -1001,17 +1151,14 @@ class PegawaiView extends GetView<PegawaiController> {
 
   Widget _chip(String label, Color color) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(label,
           style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: color)),
+              fontSize: 12, fontWeight: FontWeight.w700, color: color)),
     );
   }
 
@@ -1032,7 +1179,8 @@ class PegawaiView extends GetView<PegawaiController> {
   }) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+        padding:
+            const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
         decoration: BoxDecoration(
           color: _card,
           borderRadius: BorderRadius.circular(12),

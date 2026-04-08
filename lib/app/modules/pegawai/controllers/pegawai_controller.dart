@@ -74,12 +74,13 @@ class PegawaiController extends GetxController {
       'https://developer.fingerspot.io/api/set_userinfo';
   static const String _regOnlineUrl =
       'https://developer.fingerspot.io/api/reg_online';
+  static const String _deleteUserInfoUrl =
+      'https://developer.fingerspot.io/api/delete_userinfo';
   static const String _token = '0Z4E0I7Y7YDMTHCE';
   static const String _cloudId = 'C269248053262039';
 
   static const String _webhookTokenId =
       '28a645f8-dc6e-404e-a4f9-26725ff30d14';
-  // Ambil 1 request terbaru saja — lebih simpel dan tidak ada filter timezone
   static const String _webhookLatestUrl =
       'https://webhook.site/token/$_webhookTokenId/request/latest';
 
@@ -93,32 +94,38 @@ class PegawaiController extends GetxController {
     BiometricType(label: 'Jari 7', code: '6', description: 'Sidik jari ke-7'),
     BiometricType(label: 'Jari 8', code: '7', description: 'Sidik jari ke-8'),
     BiometricType(label: 'Jari 9', code: '8', description: 'Sidik jari ke-9'),
-    BiometricType(label: 'Jari 10', code: '9', description: 'Sidik jari ke-10'),
-    BiometricType(label: 'Wajah', code: '12', description: 'Registrasi wajah'),
+    BiometricType(
+        label: 'Jari 10', code: '9', description: 'Sidik jari ke-10'),
+    BiometricType(
+        label: 'Wajah', code: '12', description: 'Registrasi wajah'),
     BiometricType(
         label: 'Vein (Telapak)',
         code: '13',
         description: 'Registrasi vein telapak tangan'),
   ];
 
+  // ── State ────────────────────────────────────────────
   final Rx<PegawaiInfo?> pegawai = Rx<PegawaiInfo?>(null);
   final RxBool isLoading = false.obs;
-  final RxBool isSaving = false.obs;
-  final RxBool isRegBio = false.obs;
   final RxString errorMessage = ''.obs;
   final RxString statusMessage = ''.obs;
+
+  final RxBool isSaving = false.obs;
   final RxString saveMessage = ''.obs;
   final RxBool saveSuccess = false.obs;
+
+  final RxBool isRegBio = false.obs;
   final RxString bioMessage = ''.obs;
   final RxBool bioSuccess = false.obs;
+
+  final RxBool isDeleting = false.obs;
+  final RxString deleteMessage = ''.obs;
+  final RxBool deleteSuccess = false.obs;
 
   final pinInput = ''.obs;
 
   Timer? _pollTimer;
   String? _currentPin;
-
-  // UUID dari request webhook SEBELUM kita kirim query.
-  // Kita hanya proses request yang UUID-nya BERBEDA dari ini.
   String? _lastSeenUuid;
 
   @override
@@ -128,7 +135,7 @@ class PegawaiController extends GetxController {
   }
 
   // ─────────────────────────────────────────────
-  //  GET PEGAWAI
+  //  GET PEGAWAI (by PIN)
   // ─────────────────────────────────────────────
 
   Future<void> fetchPegawai(String pin) async {
@@ -146,10 +153,7 @@ class PegawaiController extends GetxController {
       pegawai.value = null;
       statusMessage.value = 'Menyiapkan permintaan...';
 
-      // Step 1: Snapshot UUID terbaru SEBELUM kirim query
-      // sehingga kita tahu request mana yang baru
       _lastSeenUuid = await _getLatestWebhookUuid();
-
       statusMessage.value = 'Mengirim permintaan ke mesin absensi...';
 
       final body = jsonEncode({
@@ -194,7 +198,6 @@ class PegawaiController extends GetxController {
     }
   }
 
-  /// Ambil UUID dari request terbaru di webhook, untuk dijadikan penanda.
   Future<String?> _getLatestWebhookUuid() async {
     try {
       final response = await http
@@ -215,7 +218,6 @@ class PegawaiController extends GetxController {
 
     _pollTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       attempts++;
-
       if (attempts > maxAttempts) {
         timer.cancel();
         isLoading.value = false;
@@ -225,7 +227,6 @@ class PegawaiController extends GetxController {
             'Pastikan mesin menyala dan terhubung ke internet.';
         return;
       }
-
       try {
         final result = await _pollWebhookSite();
         if (result != null) {
@@ -244,14 +245,10 @@ class PegawaiController extends GetxController {
             headers: {'Accept': 'application/json'})
         .timeout(const Duration(seconds: 5));
 
-    // 404 = belum ada request sama sekali
-    if (response.statusCode == 404) return null;
-    if (response.statusCode != 200) return null;
+    if (response.statusCode == 404 || response.statusCode != 200) return null;
 
     final req = jsonDecode(response.body);
     final String? uuid = req['uuid']?.toString();
-
-    // Jika UUID sama dengan snapshot sebelum query dikirim → ini data lama, skip
     if (uuid != null && uuid == _lastSeenUuid) return null;
 
     final String? content = req['content']?.toString();
@@ -264,30 +261,27 @@ class PegawaiController extends GetxController {
       return null;
     }
 
-    return _extractPegawai(payloadJson);
+    return _extractPegawai(payloadJson, pin: _currentPin);
   }
 
-  PegawaiInfo? _extractPegawai(Map<String, dynamic> payload) {
+  PegawaiInfo? _extractPegawai(Map<String, dynamic> payload,
+      {String? pin}) {
     Map<String, dynamic>? userData;
 
     if (payload['data'] is Map<String, dynamic>) {
       final d = payload['data'] as Map<String, dynamic>;
-      if (_currentPin == null || d['pin']?.toString() == _currentPin) {
-        userData = d;
-      }
+      if (pin == null || d['pin']?.toString() == pin) userData = d;
     } else if (payload['data'] is List) {
       for (final item in payload['data']) {
         if (item is Map<String, dynamic>) {
-          if (_currentPin == null ||
-              item['pin']?.toString() == _currentPin) {
+          if (pin == null || item['pin']?.toString() == pin) {
             userData = item;
             break;
           }
         }
       }
     } else if (payload.containsKey('pin') && payload.containsKey('name')) {
-      if (_currentPin == null ||
-          payload['pin']?.toString() == _currentPin) {
+      if (pin == null || payload['pin']?.toString() == pin) {
         userData = payload;
       }
     }
@@ -392,6 +386,68 @@ class PegawaiController extends GetxController {
   }
 
   // ─────────────────────────────────────────────
+  //  DELETE PEGAWAI
+  // ─────────────────────────────────────────────
+
+  Future<bool> deletePegawai(String pin) async {
+    if (pin.trim().isEmpty) {
+      deleteMessage.value = 'PIN tidak boleh kosong.';
+      deleteSuccess.value = false;
+      return false;
+    }
+
+    try {
+      isDeleting.value = true;
+      deleteMessage.value = '';
+      deleteSuccess.value = false;
+
+      final body = jsonEncode({
+        "trans_id": "1",
+        "cloud_id": _cloudId,
+        "pin": pin.trim(),
+      });
+
+      final response = await http
+          .post(
+            Uri.parse(_deleteUserInfoUrl),
+            headers: {
+              'Authorization': 'Bearer $_token',
+              'Content-Type': 'application/json',
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final respData = jsonDecode(response.body);
+        if (respData['success'] == true) {
+          deleteMessage.value = 'Pegawai berhasil dihapus dari mesin.';
+          deleteSuccess.value = true;
+          // Clear data pegawai yang sedang ditampilkan
+          pegawai.value = null;
+          return true;
+        } else {
+          deleteMessage.value =
+              respData['message']?.toString() ?? 'Gagal menghapus pegawai.';
+          deleteSuccess.value = false;
+          return false;
+        }
+      } else {
+        deleteMessage.value =
+            'Gagal menghubungi API. Status: ${response.statusCode}';
+        deleteSuccess.value = false;
+        return false;
+      }
+    } catch (e) {
+      deleteMessage.value = 'Terjadi kesalahan: ${e.toString()}';
+      deleteSuccess.value = false;
+      return false;
+    } finally {
+      isDeleting.value = false;
+    }
+  }
+
+  // ─────────────────────────────────────────────
   //  REGISTRASI BIOMETRIK
   // ─────────────────────────────────────────────
 
@@ -431,14 +487,12 @@ class PegawaiController extends GetxController {
       if (response.statusCode == 200) {
         final respData = jsonDecode(response.body);
         if (respData['success'] == true) {
-          bioMessage.value =
-              'Perintah registrasi berhasil dikirim!\n'
+          bioMessage.value = 'Perintah registrasi berhasil dikirim!\n'
               'Silakan tempelkan ${_verificationLabel(verification)} '
               'pada mesin absensi.';
           bioSuccess.value = true;
         } else {
-          bioMessage.value =
-              respData['message']?.toString() ??
+          bioMessage.value = respData['message']?.toString() ??
               'Gagal mengirim perintah registrasi.';
           bioSuccess.value = false;
         }
@@ -476,6 +530,8 @@ class PegawaiController extends GetxController {
     saveSuccess.value = false;
     bioMessage.value = '';
     bioSuccess.value = false;
+    deleteMessage.value = '';
+    deleteSuccess.value = false;
     pinInput.value = '';
     _currentPin = null;
     _lastSeenUuid = null;
@@ -489,5 +545,10 @@ class PegawaiController extends GetxController {
   void clearBioMessage() {
     bioMessage.value = '';
     bioSuccess.value = false;
+  }
+
+  void clearDeleteMessage() {
+    deleteMessage.value = '';
+    deleteSuccess.value = false;
   }
 }
