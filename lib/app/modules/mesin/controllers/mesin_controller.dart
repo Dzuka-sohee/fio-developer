@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class MesinInfo {
   final String cloudId;
@@ -28,6 +29,17 @@ class MesinInfo {
     );
   }
 
+  Map<String, dynamic> toMap() {
+    return {
+      'cloud_id': cloudId,
+      'device_name': deviceName,
+      'webhook_url': webhookUrl,
+      'created_at': createdAt,
+      'last_activity': lastActivity,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
   String get statusLabel {
     if (lastActivity == 'N/A' || lastActivity.isEmpty || lastActivity == '-') {
       return 'Tidak Aktif';
@@ -50,9 +62,13 @@ class MesinController extends GetxController {
       'https://developer.fingerspot.io/api/set_time';
 
   static const String _webhookTokenId =
-      '28a645f8-dc6e-404e-a4f9-26725ff30d14';
+      '36917e68-7164-48c7-9ddd-b3981158eb2e';
   static const String _webhookLatestUrl =
       'https://webhook.site/token/$_webhookTokenId/request/latest';
+
+  // ── Firestore ────────────────────────────────────
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const String _collectionName = 'mesin';
 
   static const List<String> timezoneOptions = [
     'Asia/Jakarta',
@@ -155,10 +171,30 @@ class MesinController extends GetxController {
       mesin.value = MesinInfo.fromMap(deviceMap);
       isLoading.value = false;
       statusMessage.value = '';
+
+      // ── Simpan hasil fetch ke Firestore ──────────
+      await _saveMesinToFirestore(mesin.value!);
     } catch (e) {
       errorMessage.value = 'Terjadi kesalahan: ${e.toString()}';
       isLoading.value = false;
       statusMessage.value = '';
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  //  FIRESTORE: Simpan data mesin
+  // ─────────────────────────────────────────────
+
+  Future<void> _saveMesinToFirestore(MesinInfo info) async {
+    try {
+      final data = info.toMap();
+      data['fetchedAt'] = FieldValue.serverTimestamp();
+      await _firestore
+          .collection(_collectionName)
+          .doc(info.cloudId)
+          .set(data, SetOptions(merge: true));
+    } catch (e) {
+      // Gagal simpan Firestore tidak mengganggu alur utama
     }
   }
 
@@ -202,6 +238,9 @@ class MesinController extends GetxController {
         setTimeSuccess.value = true;
         setTimeMessage.value =
             'Zona waktu berhasil diubah ke ${selectedTimezone.value}';
+
+        // ── Simpan perubahan timezone ke Firestore ────
+        await _saveTimezoneToFirestore(selectedTimezone.value);
       } else {
         setTimeSuccess.value = false;
         setTimeMessage.value =
@@ -212,6 +251,24 @@ class MesinController extends GetxController {
     } catch (e) {
       setTimeMessage.value = 'Terjadi kesalahan: ${e.toString()}';
       isSettingTime.value = false;
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  //  FIRESTORE: Simpan perubahan timezone
+  // ─────────────────────────────────────────────
+
+  Future<void> _saveTimezoneToFirestore(String timezone) async {
+    try {
+      await _firestore
+          .collection(_collectionName)
+          .doc(_cloudId)
+          .set({
+        'timezone': timezone,
+        'timezoneUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      // Gagal simpan Firestore tidak mengganggu alur utama
     }
   }
 

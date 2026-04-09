@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class PegawaiInfo {
   final String pin;
@@ -35,6 +36,20 @@ class PegawaiInfo {
       rfid: (map['rfid'] as num?)?.toInt() ?? 0,
       vein: (map['vein'] as num?)?.toInt() ?? 0,
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'pin': pin,
+      'name': name,
+      'privilege': privilege,
+      'finger': finger,
+      'face': face,
+      'password': password,
+      'rfid': rfid,
+      'vein': vein,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
   }
 
   String get privilegeLabel {
@@ -80,9 +95,13 @@ class PegawaiController extends GetxController {
   static const String _cloudId = 'C269248053262039';
 
   static const String _webhookTokenId =
-      '28a645f8-dc6e-404e-a4f9-26725ff30d14';
+      '36917e68-7164-48c7-9ddd-b3981158eb2e';
   static const String _webhookLatestUrl =
       'https://webhook.site/token/$_webhookTokenId/request/latest';
+
+  // ── Firestore ────────────────────────────────────
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const String _collectionName = 'pegawai';
 
   static const List<BiometricType> biometricTypes = [
     BiometricType(label: 'Jari 1', code: '0', description: 'Sidik jari ke-1'),
@@ -234,6 +253,9 @@ class PegawaiController extends GetxController {
           pegawai.value = result;
           isLoading.value = false;
           statusMessage.value = '';
+
+          // ── Simpan hasil search ke Firestore ──────────
+          await _saveToFirestore(result);
         }
       } catch (_) {}
     });
@@ -288,6 +310,23 @@ class PegawaiController extends GetxController {
 
     if (userData == null) return null;
     return PegawaiInfo.fromMap(userData);
+  }
+
+  // ─────────────────────────────────────────────
+  //  FIRESTORE: Simpan data ke Firestore
+  // ─────────────────────────────────────────────
+
+  Future<void> _saveToFirestore(PegawaiInfo info) async {
+    try {
+      final data = info.toMap();
+      data['createdAt'] = FieldValue.serverTimestamp();
+      await _firestore
+          .collection(_collectionName)
+          .doc(info.pin)
+          .set(data, SetOptions(merge: true));
+    } catch (e) {
+      // Simpan ke Firestore gagal, tapi tidak mengganggu alur utama
+    }
   }
 
   // ─────────────────────────────────────────────
@@ -351,6 +390,19 @@ class PegawaiController extends GetxController {
               : 'Pegawai baru berhasil ditambahkan!';
           saveSuccess.value = true;
 
+          // ── Simpan / update ke Firestore ──────────────
+          final updatedInfo = PegawaiInfo(
+            pin: pin.trim(),
+            name: name.trim(),
+            privilege: int.tryParse(privilege) ?? 0,
+            finger: isEdit ? (pegawai.value?.finger ?? 0) : 0,
+            face: isEdit ? (pegawai.value?.face ?? 0) : 0,
+            password: password.trim(),
+            rfid: int.tryParse(rfid) ?? 0,
+            vein: isEdit ? (pegawai.value?.vein ?? 0) : 0,
+          );
+          await _upsertFirestore(updatedInfo, isEdit: isEdit);
+
           if (isEdit && pegawai.value != null) {
             pegawai.value = PegawaiInfo(
               pin: pin.trim(),
@@ -382,6 +434,21 @@ class PegawaiController extends GetxController {
       return false;
     } finally {
       isSaving.value = false;
+    }
+  }
+
+  Future<void> _upsertFirestore(PegawaiInfo info, {bool isEdit = false}) async {
+    try {
+      final data = info.toMap();
+      if (!isEdit) {
+        data['createdAt'] = FieldValue.serverTimestamp();
+      }
+      await _firestore
+          .collection(_collectionName)
+          .doc(info.pin)
+          .set(data, SetOptions(merge: true));
+    } catch (e) {
+      // Gagal update Firestore tidak mengganggu alur utama
     }
   }
 
@@ -423,6 +490,10 @@ class PegawaiController extends GetxController {
         if (respData['success'] == true) {
           deleteMessage.value = 'Pegawai berhasil dihapus dari mesin.';
           deleteSuccess.value = true;
+
+          // ── Hapus dari Firestore ──────────────────────
+          await _deleteFromFirestore(pin.trim());
+
           // Clear data pegawai yang sedang ditampilkan
           pegawai.value = null;
           return true;
@@ -444,6 +515,14 @@ class PegawaiController extends GetxController {
       return false;
     } finally {
       isDeleting.value = false;
+    }
+  }
+
+  Future<void> _deleteFromFirestore(String pin) async {
+    try {
+      await _firestore.collection(_collectionName).doc(pin).delete();
+    } catch (e) {
+      // Gagal hapus di Firestore tidak mengganggu alur utama
     }
   }
 
