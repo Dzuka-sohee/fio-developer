@@ -25,24 +25,14 @@ class PegawaiView extends GetView<PegawaiController> {
 
   @override
   Widget build(BuildContext context) {
-    final TextEditingController pinTextController = TextEditingController();
-
     return Scaffold(
       backgroundColor: _bg,
-      appBar: _buildAppBar(pinTextController),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showFormDialog(context, isEdit: false),
-        backgroundColor: _primary,
-        icon: const Icon(Icons.person_add_rounded, color: Colors.white),
-        label: const Text(
-          'Tambah Pegawai',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
-      ),
+      appBar: _buildAppBar(context),
+      floatingActionButton: _buildFAB(context),
       body: Column(
         children: [
-          _buildSearchCard(pinTextController),
-          Expanded(child: _buildBody(context)),
+          _buildSearchBar(),
+          Expanded(child: _buildFirestoreList(context)),
         ],
       ),
     );
@@ -52,7 +42,7 @@ class PegawaiView extends GetView<PegawaiController> {
   //  APP BAR
   // ─────────────────────────────────────────────────────────────────
 
-  PreferredSizeWidget _buildAppBar(TextEditingController pinTextController) {
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
     return AppBar(
       backgroundColor: _primary,
       elevation: 0,
@@ -65,9 +55,10 @@ class PegawaiView extends GetView<PegawaiController> {
             letterSpacing: 0.3),
       ),
       actions: [
-        Obx(() => controller.isLoading.value
+        // Tombol Impor by PIN
+        Obx(() => controller.isImporting.value
             ? const Padding(
-                padding: EdgeInsets.all(14),
+                padding: EdgeInsets.symmetric(horizontal: 14),
                 child: SizedBox(
                   width: 20,
                   height: 20,
@@ -76,14 +67,28 @@ class PegawaiView extends GetView<PegawaiController> {
                 ),
               )
             : IconButton(
-                icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-                tooltip: 'Reset',
-                onPressed: () {
-                  pinTextController.clear();
-                  controller.reset();
-                },
+                icon: const Icon(Icons.cloud_download_rounded,
+                    color: Colors.white),
+                tooltip: 'Impor Pegawai dari Mesin',
+                onPressed: () => _showImportByPinDialog(context),
               )),
       ],
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  FAB (Tambah Manual)
+  // ─────────────────────────────────────────────────────────────────
+
+  Widget _buildFAB(BuildContext context) {
+    return FloatingActionButton.extended(
+      onPressed: () => _showFormDialog(context, isEdit: false),
+      backgroundColor: _primary,
+      icon: const Icon(Icons.person_add_rounded, color: Colors.white),
+      label: const Text(
+        'Tambah Pegawai',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      ),
     );
   }
 
@@ -91,7 +96,7 @@ class PegawaiView extends GetView<PegawaiController> {
   //  SEARCH BAR
   // ─────────────────────────────────────────────────────────────────
 
-  Widget _buildSearchCard(TextEditingController pinTextController) {
+  Widget _buildSearchBar() {
     return Container(
       color: _primary,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -104,19 +109,18 @@ class PegawaiView extends GetView<PegawaiController> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.badge_rounded, color: Colors.white, size: 20),
+            const Icon(Icons.search_rounded, color: Colors.white, size: 20),
             const SizedBox(width: 10),
             Expanded(
               child: TextField(
-                controller: pinTextController,
-                keyboardType: TextInputType.number,
+                onChanged: (v) => controller.searchQuery.value = v,
                 style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
                     fontSize: 14),
                 decoration: InputDecoration(
                   isDense: true,
-                  hintText: 'Masukkan PIN pegawai...',
+                  hintText: 'Cari nama atau PIN pegawai...',
                   hintStyle: TextStyle(
                       color: Colors.white.withOpacity(0.6),
                       fontSize: 14,
@@ -124,38 +128,18 @@ class PegawaiView extends GetView<PegawaiController> {
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.zero,
                 ),
-                onSubmitted: (v) => controller.fetchPegawai(v),
               ),
             ),
-            Obx(() => controller.isLoading.value
-                ? const SizedBox(
-                    width: 36,
-                    height: 36,
-                    child: Center(
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2),
-                      ),
-                    ),
-                  )
-                : TextButton(
-                    style: TextButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.2),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 6),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8)),
-                    ),
-                    onPressed: () =>
-                        controller.fetchPegawai(pinTextController.text),
-                    child: const Text('Cari',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13)),
-                  )),
+            Obx(() {
+              if (controller.searchQuery.value.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return GestureDetector(
+                onTap: () => controller.searchQuery.value = '',
+                child: Icon(Icons.close_rounded,
+                    color: Colors.white.withOpacity(0.7), size: 18),
+              );
+            }),
           ],
         ),
       ),
@@ -163,292 +147,837 @@ class PegawaiView extends GetView<PegawaiController> {
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  BODY
+  //  LIST PEGAWAI DARI FIRESTORE
   // ─────────────────────────────────────────────────────────────────
 
-  Widget _buildBody(BuildContext context) {
+  Widget _buildFirestoreList(BuildContext context) {
     return Obx(() {
-      if (controller.isLoading.value) {
+      if (controller.isListLoading.value) {
+        return const Center(
+          child: CircularProgressIndicator(color: _primary),
+        );
+      }
+
+      final list = controller.filteredPegawaiList;
+
+      if (list.isEmpty) {
         return Center(
           child: Padding(
             padding: const EdgeInsets.all(32),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CircularProgressIndicator(color: _primary),
-                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: _primary.withOpacity(0.07),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.people_outline_rounded,
+                      color: _primary, size: 48),
+                ),
+                const SizedBox(height: 16),
                 Text(
-                  controller.statusMessage.value.isNotEmpty
-                      ? controller.statusMessage.value
-                      : 'Memuat data...',
-                  textAlign: TextAlign.center,
+                  controller.searchQuery.value.isNotEmpty
+                      ? 'Pegawai tidak ditemukan'
+                      : 'Belum ada data pegawai',
                   style: const TextStyle(
-                      color: _textDark,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: _textDark),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Mohon tunggu, sedang menghubungi mesin absensi...',
+                Text(
+                  controller.searchQuery.value.isNotEmpty
+                      ? 'Coba kata kunci yang berbeda'
+                      : 'Tambah pegawai baru atau sinkron dari mesin absensi',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: _textGray, fontSize: 12),
+                  style: const TextStyle(fontSize: 13, color: _textGray),
                 ),
-              ],
-            ),
-          ),
-        );
-      }
-
-      if (controller.errorMessage.isNotEmpty) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.person_off_rounded,
-                    color: _textGray, size: 52),
-                const SizedBox(height: 14),
-                Text(controller.errorMessage.value,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: _textGray, fontSize: 14)),
-                const SizedBox(height: 20),
-                ElevatedButton.icon(
-                  onPressed: controller.reset,
-                  icon: const Icon(Icons.search_rounded, size: 16),
-                  label: const Text('Cari Ulang'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                if (controller.searchQuery.value.isEmpty) ...[
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: () => _showImportByPinDialog(context),
+                    icon: const Icon(Icons.cloud_download_rounded, size: 16),
+                    label: const Text('Impor dari Mesin'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
         );
       }
 
-      if (controller.pegawai.value == null) {
-        return const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.manage_accounts_rounded, color: _textGray, size: 60),
-              SizedBox(height: 14),
-              Text('Masukkan PIN untuk mencari data pegawai',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: _textGray, fontSize: 14)),
-            ],
+      return Column(
+        children: [
+          // Header jumlah pegawai
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                Obx(() => Text(
+                      '${controller.filteredPegawaiList.length} pegawai',
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _textGray),
+                    )),
+                const Spacer(),
+                Obx(() => controller.isListLoading.value
+                    ? const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: _primary))
+                    : const SizedBox.shrink()),
+              ],
+            ),
           ),
-        );
-      }
-
-      return _buildPegawaiDetail(context, controller.pegawai.value!);
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+              itemCount: list.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final p = list[index];
+                return _buildPegawaiCard(context, p);
+              },
+            ),
+          ),
+        ],
+      );
     });
   }
 
   // ─────────────────────────────────────────────────────────────────
-  //  DETAIL PEGAWAI
+  //  CARD PEGAWAI (list item)
   // ─────────────────────────────────────────────────────────────────
 
-  Widget _buildPegawaiDetail(BuildContext context, PegawaiInfo p) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Profile card ──────────────────────────────
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: _card,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                    color: _primary.withOpacity(0.08),
-                    blurRadius: 12,
-                    offset: const Offset(0, 3))
+  Widget _buildPegawaiCard(BuildContext context, PegawaiInfo p) {
+    Color privilegeColor;
+    switch (p.privilege) {
+      case 14:
+        privilegeColor = _danger;
+        break;
+      case 3:
+        privilegeColor = _purple;
+        break;
+      case 2:
+        privilegeColor = _warning;
+        break;
+      case 1:
+        privilegeColor = _success;
+        break;
+      default:
+        privilegeColor = _textGray;
+    }
+
+    return GestureDetector(
+      onTap: () => _showDetailSheet(context, p),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _card,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2))
+          ],
+        ),
+        child: Row(
+          children: [
+            // Avatar
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: _primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Text(
+                  p.name.isNotEmpty
+                      ? p.name.substring(0, 1).toUpperCase()
+                      : '?',
+                  style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: _primary),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(p.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: _textDark)),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      _chip('PIN: ${p.pin}', _primary),
+                      const SizedBox(width: 6),
+                      _chip(p.privilegeLabel, privilegeColor),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // Biometrik mini indicator
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _bioIndicator(
+                        Icons.fingerprint_rounded, p.finger, _primary),
+                    const SizedBox(width: 4),
+                    _bioIndicator(Icons.face_rounded, p.face, _purple),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Icon(Icons.chevron_right_rounded,
+                    color: _textGray, size: 18),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _bioIndicator(IconData icon, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: count > 0 ? color.withOpacity(0.1) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon,
+              size: 11,
+              color: count > 0 ? color : Colors.grey.shade400),
+          const SizedBox(width: 2),
+          Text('$count',
+              style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: count > 0 ? color : Colors.grey.shade400)),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  BOTTOM SHEET DETAIL PEGAWAI
+  // ─────────────────────────────────────────────────────────────────
+
+  void _showDetailSheet(BuildContext context, PegawaiInfo p) {
+    // Set pegawai aktif di controller agar form edit bisa pakai data ini
+    controller.pegawai.value = p;
+    controller.clearDeleteMessage();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (_, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 6),
+                child: Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
+                  child: _buildPegawaiDetail(context, p, ctx),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  DETAIL PEGAWAI (dalam bottom sheet)
+  // ─────────────────────────────────────────────────────────────────
+
+  Widget _buildPegawaiDetail(
+      BuildContext context, PegawaiInfo p, BuildContext sheetCtx) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Profile card ──────────────────────────────
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: _bg,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: _primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Center(
+                      child: Text(
+                        p.name.isNotEmpty
+                            ? p.name.substring(0, 1).toUpperCase()
+                            : '?',
+                        style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            color: _primary),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(p.name,
+                            style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: _textDark)),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            _chip('PIN: ${p.pin}', _primary),
+                            const SizedBox(width: 6),
+                            _chip(p.privilegeLabel, _success),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Tombol Edit & Hapus
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(sheetCtx);
+                        _showFormDialog(context, isEdit: true, existing: p);
+                      },
+                      icon: const Icon(Icons.edit_rounded, size: 16),
+                      label: const Text('Edit'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _primary,
+                        side: const BorderSide(color: _primary),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Obx(() => ElevatedButton.icon(
+                          onPressed: controller.isDeleting.value
+                              ? null
+                              : () => _showDeleteConfirmDialog(context, p),
+                          icon: controller.isDeleting.value
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                      color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Icon(Icons.delete_rounded, size: 16),
+                          label: Text(controller.isDeleting.value
+                              ? 'Menghapus...'
+                              : 'Hapus'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _danger,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: _danger.withOpacity(0.6),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                          ),
+                        )),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // ── Biometrik ─────────────────────────────────
+        _buildSectionTitle('Biometrik'),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _bioCard(
+                icon: Icons.fingerprint_rounded,
+                label: 'Sidik Jari',
+                value: '${p.finger}',
+                color: _primary),
+            const SizedBox(width: 10),
+            _bioCard(
+                icon: Icons.face_rounded,
+                label: 'Wajah',
+                value: '${p.face}',
+                color: _purple),
+            const SizedBox(width: 10),
+            _bioCard(
+                icon: Icons.water_drop_rounded,
+                label: 'Vein',
+                value: '${p.vein}',
+                color: _warning),
+          ],
+        ),
+
+        const SizedBox(height: 16),
+
+        // ── Informasi Detail ──────────────────────────
+        _buildSectionTitle('Informasi Detail'),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: _card,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2))
+            ],
+          ),
+          child: Column(
+            children: [
+              _infoRow(
+                  icon: Icons.tag_rounded,
+                  label: 'PIN',
+                  value: p.pin,
+                  isFirst: true),
+              _divider(),
+              _infoRow(
+                  icon: Icons.person_rounded, label: 'Nama', value: p.name),
+              _divider(),
+              _infoRow(
+                  icon: Icons.admin_panel_settings_rounded,
+                  label: 'Hak Akses',
+                  value: '${p.privilegeLabel} (${p.privilege})'),
+              _divider(),
+              _infoRow(
+                  icon: Icons.lock_rounded,
+                  label: 'Password',
+                  value: p.password),
+              _divider(),
+              _infoRow(
+                  icon: Icons.credit_card_rounded,
+                  label: 'RFID',
+                  value: '${p.rfid}',
+                  isLast: true),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  DIALOG IMPOR PEGAWAI BY PIN
+  // ─────────────────────────────────────────────────────────────────
+
+  void _showImportByPinDialog(BuildContext context) {
+    controller.clearImport();
+    final pinCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ── Header ─────────────────────────────────────────
                 Row(
                   children: [
                     Container(
-                      width: 64,
-                      height: 64,
+                      width: 44,
+                      height: 44,
                       decoration: BoxDecoration(
-                        color: _primary.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(16),
+                        color: _primary.withOpacity(0.1),
+                        shape: BoxShape.circle,
                       ),
-                      child: Center(
-                        child: Text(
-                          p.name.isNotEmpty
-                              ? p.name.substring(0, 1).toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w800,
-                              color: _primary),
-                        ),
+                      child: const Icon(Icons.cloud_upload_rounded,
+                          color: _primary, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Impor Pegawai dari Mesin',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: _textDark),
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(p.name,
-                              style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: _textDark)),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              _chip('PIN: ${p.pin}', _primary),
-                              const SizedBox(width: 6),
-                              _chip(p.privilegeLabel, _success),
-                            ],
-                          ),
-                        ],
-                      ),
+                    GestureDetector(
+                      onTap: () {
+                        controller.clearImport();
+                        Navigator.pop(ctx);
+                      },
+                      child: const Icon(Icons.close_rounded,
+                          color: _textGray, size: 20),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
 
-                // Tombol Edit & Hapus berdampingan
+                // ── Search bar PIN + Tombol Impor ──────────────────
                 Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => _showFormDialog(context,
-                            isEdit: true, existing: p),
-                        icon: const Icon(Icons.edit_rounded, size: 16),
-                        label: const Text('Edit'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _primary,
-                          side: const BorderSide(color: _primary),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Container(
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: _bg,
+                          borderRadius: BorderRadius.circular(12),
+                          border:
+                              Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 12),
+                            const Icon(Icons.tag_rounded,
+                                color: _primary, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: pinCtrl,
+                                keyboardType: TextInputType.number,
+                                style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: _textDark),
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  hintText: 'Masukkan PIN pegawai...',
+                                  hintStyle: TextStyle(
+                                      color: _textGray.withOpacity(0.7),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w400),
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Obx(() => ElevatedButton.icon(
-                            onPressed: controller.isDeleting.value
+                    const SizedBox(width: 8),
+                    // ── Tombol Impor ────────────────────────────────
+                    Obx(() => SizedBox(
+                          height: 46,
+                          child: ElevatedButton.icon(
+                            onPressed: controller.isImporting.value
                                 ? null
-                                : () => _showDeleteConfirmDialog(context, p),
-                            icon: controller.isDeleting.value
+                                : () async {
+                                    if (pinCtrl.text.trim().isEmpty) return;
+                                    await controller.fetchImportByPin(
+                                        pinCtrl.text.trim());
+                                  },
+                            icon: controller.isImporting.value
                                 ? const SizedBox(
                                     width: 14,
                                     height: 14,
                                     child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2),
+                                        color: Colors.white,
+                                        strokeWidth: 2),
                                   )
-                                : const Icon(Icons.delete_rounded, size: 16),
-                            label: Text(controller.isDeleting.value
-                                ? 'Menghapus...'
-                                : 'Hapus'),
+                                : const Icon(Icons.search_rounded,
+                                    size: 16),
+                            label: Text(
+                              controller.isImporting.value
+                                  ? 'Mencari...'
+                                  : 'Impor',
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600),
+                            ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: _danger,
+                              backgroundColor: _primary,
                               foregroundColor: Colors.white,
                               disabledBackgroundColor:
-                                  _danger.withOpacity(0.6),
+                                  _primary.withOpacity(0.5),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 10),
+                                  borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14),
                             ),
-                          )),
-                    ),
+                          ),
+                        )),
                   ],
                 ),
+
+                // ── Status polling ─────────────────────────────────
+                Obx(() {
+                  if (controller.isImporting.value &&
+                      controller.statusMessage.value.isNotEmpty) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Row(
+                        children: [
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: _primary),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              controller.statusMessage.value,
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: _primary,
+                                  fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }),
+
+                // ── Hasil Data Pegawai ─────────────────────────────
+                Obx(() {
+                  final info = controller.importedPegawai.value;
+                  if (info == null) return const SizedBox.shrink();
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      const SizedBox(height: 16),
+                      _buildSectionTitle('Data Ditemukan'),
+                      const SizedBox(height: 10),
+
+                      // Card info pegawai
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: _bg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                              color: _primary.withOpacity(0.15)),
+                        ),
+                        child: Row(
+                          children: [
+                            // Avatar
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: _primary.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(13),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  info.name.isNotEmpty
+                                      ? info.name
+                                          .substring(0, 1)
+                                          .toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w800,
+                                      color: _primary),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            // Detail
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  Text(info.name,
+                                      style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: _textDark)),
+                                  const SizedBox(height: 5),
+                                  Row(
+                                    children: [
+                                      _chip('PIN: ${info.pin}', _primary),
+                                      const SizedBox(width: 6),
+                                      _chip(info.privilegeLabel,
+                                          _success),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            // ── Tombol Tambah ───────────────────────
+                            Obx(() => controller.importSaveSuccess.value
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: _success.withOpacity(0.1),
+                                      borderRadius:
+                                          BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(
+                                        Icons.check_circle_rounded,
+                                        color: _success,
+                                        size: 22),
+                                  )
+                                : ElevatedButton.icon(
+                                    onPressed:
+                                        controller.isSavingImport.value
+                                            ? null
+                                            : () async {
+                                                await controller
+                                                    .saveImportedToFirestore();
+                                              },
+                                    icon: controller.isSavingImport.value
+                                        ? const SizedBox(
+                                            width: 12,
+                                            height: 12,
+                                            child:
+                                                CircularProgressIndicator(
+                                                    color: Colors.white,
+                                                    strokeWidth: 2),
+                                          )
+                                        : const Icon(
+                                            Icons.add_circle_rounded,
+                                            size: 16),
+                                    label: Text(
+                                      controller.isSavingImport.value
+                                          ? 'Menyimpan...'
+                                          : 'Tambah',
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _success,
+                                      foregroundColor: Colors.white,
+                                      disabledBackgroundColor:
+                                          _success.withOpacity(0.5),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(10)),
+                                      padding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 8),
+                                    ),
+                                  )),
+                          ],
+                        ),
+                      ),
+
+                      // Feedback simpan
+                      Obx(() {
+                        if (controller.importSaveMessage.value.isEmpty) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: _buildFeedbackBanner(
+                            message: controller.importSaveMessage.value,
+                            isSuccess: controller.importSaveSuccess.value,
+                          ),
+                        );
+                      }),
+                    ],
+                  );
+                }),
+
+                // ── Pesan error impor ──────────────────────────────
+                Obx(() {
+                  if (controller.importMessage.value.isNotEmpty &&
+                      !controller.importSuccess.value &&
+                      !controller.isImporting.value) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: _buildFeedbackBanner(
+                        message: controller.importMessage.value,
+                        isSuccess: false,
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }),
+
+                const SizedBox(height: 8),
               ],
             ),
           ),
-
-          const SizedBox(height: 16),
-
-          // ── Biometrik ─────────────────────────────────
-          _buildSectionTitle('Biometrik'),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              _bioCard(
-                  icon: Icons.fingerprint_rounded,
-                  label: 'Sidik Jari',
-                  value: '${p.finger}',
-                  color: _primary),
-              const SizedBox(width: 10),
-              _bioCard(
-                  icon: Icons.face_rounded,
-                  label: 'Wajah',
-                  value: '${p.face}',
-                  color: _purple),
-              const SizedBox(width: 10),
-              _bioCard(
-                  icon: Icons.water_drop_rounded,
-                  label: 'Vein',
-                  value: '${p.vein}',
-                  color: _warning),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // ── Informasi Detail ──────────────────────────
-          _buildSectionTitle('Informasi Detail'),
-          const SizedBox(height: 8),
-          Container(
-            decoration: BoxDecoration(
-              color: _card,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2))
-              ],
-            ),
-            child: Column(
-              children: [
-                _infoRow(
-                    icon: Icons.tag_rounded,
-                    label: 'PIN',
-                    value: p.pin,
-                    isFirst: true),
-                _divider(),
-                _infoRow(
-                    icon: Icons.person_rounded,
-                    label: 'Nama',
-                    value: p.name),
-                _divider(),
-                _infoRow(
-                    icon: Icons.admin_panel_settings_rounded,
-                    label: 'Hak Akses',
-                    value: '${p.privilegeLabel} (${p.privilege})'),
-                _divider(),
-                _infoRow(
-                    icon: Icons.lock_rounded,
-                    label: 'Password',
-                    value: p.password),
-                _divider(),
-                _infoRow(
-                    icon: Icons.credit_card_rounded,
-                    label: 'RFID',
-                    value: '${p.rfid}',
-                    isLast: true),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -470,7 +999,6 @@ class PegawaiView extends GetView<PegawaiController> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Icon warning
             Container(
               width: 60,
               height: 60,
@@ -485,16 +1013,14 @@ class PegawaiView extends GetView<PegawaiController> {
             const Text(
               'Hapus Pegawai?',
               style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: _textDark),
+                  fontSize: 18, fontWeight: FontWeight.w800, color: _textDark),
             ),
             const SizedBox(height: 8),
             RichText(
               textAlign: TextAlign.center,
               text: TextSpan(
-                style: const TextStyle(
-                    fontSize: 14, color: _textGray, height: 1.5),
+                style:
+                    const TextStyle(fontSize: 14, color: _textGray, height: 1.5),
                 children: [
                   const TextSpan(text: 'Data pegawai '),
                   TextSpan(
@@ -515,8 +1041,6 @@ class PegawaiView extends GetView<PegawaiController> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Feedback setelah aksi (error/sukses)
             Obx(() {
               if (controller.deleteMessage.value.isEmpty) {
                 return const SizedBox.shrink();
@@ -560,8 +1084,7 @@ class PegawaiView extends GetView<PegawaiController> {
                               if (success) {
                                 await Future.delayed(
                                     const Duration(milliseconds: 800));
-                                Navigator.pop(ctx);
-                                controller.reset();
+                                Navigator.pop(ctx); // tutup confirm dialog
                               }
                             },
                       icon: controller.isDeleting.value
@@ -667,9 +1190,7 @@ class PegawaiView extends GetView<PegawaiController> {
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      isEdit
-                          ? 'Edit Data Pegawai'
-                          : 'Tambah Pegawai Baru',
+                      isEdit ? 'Edit Data Pegawai' : 'Tambah Pegawai Baru',
                       style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -848,8 +1369,7 @@ class PegawaiView extends GetView<PegawaiController> {
                                     width: 16,
                                     height: 16,
                                     child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2),
+                                        color: Colors.white, strokeWidth: 2),
                                   )
                                 : Icon(
                                     isEdit
@@ -1179,8 +1699,7 @@ class PegawaiView extends GetView<PegawaiController> {
   }) {
     return Expanded(
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
         decoration: BoxDecoration(
           color: _card,
           borderRadius: BorderRadius.circular(12),
@@ -1226,8 +1745,7 @@ class PegawaiView extends GetView<PegawaiController> {
     bool isLast = false,
   }) {
     return Padding(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
       child: Row(
         children: [
           Container(

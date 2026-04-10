@@ -141,16 +141,71 @@ class PegawaiController extends GetxController {
   final RxString deleteMessage = ''.obs;
   final RxBool deleteSuccess = false.obs;
 
+  // ── State: Import by PIN ───────────────────────────────
+  final RxList<PegawaiInfo> pegawaiList = <PegawaiInfo>[].obs;
+  final RxBool isListLoading = true.obs;
+  final RxString searchQuery = ''.obs;
+
   final pinInput = ''.obs;
+
+  // ── State: Import by PIN ───────────────────────────────
+  final Rx<PegawaiInfo?> importedPegawai = Rx<PegawaiInfo?>(null);
+  final RxBool isImporting = false.obs;
+  final RxString importMessage = ''.obs;
+  final RxBool importSuccess = false.obs;
+  final RxBool isSavingImport = false.obs;
+  final RxString importSaveMessage = ''.obs;
+  final RxBool importSaveSuccess = false.obs;
 
   Timer? _pollTimer;
   String? _currentPin;
   String? _lastSeenUuid;
+  StreamSubscription<QuerySnapshot>? _firestoreSubscription;
+
+  @override
+  void onInit() {
+    super.onInit();
+    _listenToFirestore();
+  }
 
   @override
   void onClose() {
     _pollTimer?.cancel();
+    _firestoreSubscription?.cancel();
     super.onClose();
+  }
+
+  // ─────────────────────────────────────────────
+  //  STREAM LIST PEGAWAI DARI FIRESTORE (realtime)
+  // ─────────────────────────────────────────────
+
+  void _listenToFirestore() {
+    isListLoading.value = true;
+    _firestoreSubscription = _firestore
+        .collection(_collectionName)
+        .orderBy('name')
+        .snapshots()
+        .listen((snapshot) {
+      pegawaiList.value = snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['pin'] = doc.id; // pastikan pin dari document id
+        return PegawaiInfo.fromMap(data);
+      }).toList();
+      isListLoading.value = false;
+    }, onError: (e) {
+      isListLoading.value = false;
+    });
+  }
+
+  /// Filtered list berdasarkan searchQuery
+  List<PegawaiInfo> get filteredPegawaiList {
+    final q = searchQuery.value.trim().toLowerCase();
+    if (q.isEmpty) return pegawaiList;
+    return pegawaiList
+        .where((p) =>
+            p.name.toLowerCase().contains(q) ||
+            p.pin.toLowerCase().contains(q))
+        .toList();
   }
 
   // ─────────────────────────────────────────────
@@ -286,8 +341,7 @@ class PegawaiController extends GetxController {
     return _extractPegawai(payloadJson, pin: _currentPin);
   }
 
-  PegawaiInfo? _extractPegawai(Map<String, dynamic> payload,
-      {String? pin}) {
+  PegawaiInfo? _extractPegawai(Map<String, dynamic> payload, {String? pin}) {
     Map<String, dynamic>? userData;
 
     if (payload['data'] is Map<String, dynamic>) {
@@ -597,6 +651,191 @@ class PegawaiController extends GetxController {
   }
 
   // ─────────────────────────────────────────────
+  //  IMPORT PEGAWAI BY PIN (untuk dialog impor awan)
+  // ─────────────────────────────────────────────
+
+  /// Fetch satu pegawai berdasarkan PIN, hasilnya disimpan di [importedPegawai].
+  /// Menggunakan alur yang sama dengan [fetchPegawai] (polling webhook).
+  Future<void> fetchImportByPin(String pin) async {
+    if (pin.trim().isEmpty) {
+      importMessage.value = 'PIN tidak boleh kosong.';
+      importSuccess.value = false;
+      return;
+    }
+
+    _pollTimer?.cancel();
+    _currentPin = pin.trim();
+
+    try {
+      isImporting.value = true;
+      importMessage.value = '';
+      importSuccess.value = false;
+      importedPegawai.value = null;
+      importSaveMessage.value = '';
+      importSaveSuccess.value = false;
+      statusMessage.value = 'Menyiapkan permintaan...';
+
+      _lastSeenUuid = await _getLatestWebhookUuid();
+      statusMessage.value = 'Mengirim permintaan ke mesin absensi...';
+
+      final body = jsonEncode({
+        "trans_id": "1",
+        "cloud_id": _cloudId,
+        "pin": pin.trim(),
+      });
+
+      final response = await http
+          .post(
+            Uri.parse(_getUserInfoUrl),
+            headers: {
+              'Authorization': 'Bearer $_token',
+              'Content-Type': 'application/json',
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        importMessage.value =
+            'Gagal menghubungi API. Status: ${response.statusCode}';
+        importSuccess.value = false;
+        isImporting.value = false;
+        statusMessage.value = '';
+        return;
+      }
+
+      final respData = jsonDecode(response.body);
+      if (respData['success'] != true) {
+        importMessage.value = 'Permintaan ditolak API Fingerspot.';
+        importSuccess.value = false;
+        isImporting.value = false;
+        statusMessage.value = '';
+        return;
+      }
+
+      statusMessage.value = 'Menunggu respon dari mesin absensi...';
+      _startPollingImport();
+    } catch (e) {
+      importMessage.value = 'Terjadi kesalahan: ${e.toString()}';
+      importSuccess.value = false;
+      isImporting.value = false;
+      statusMessage.value = '';
+    }
+  }
+
+  void _startPollingImport() {
+    int attempts = 0;
+    const maxAttempts = 30;
+
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      attempts++;
+      if (attempts > maxAttempts) {
+        timer.cancel();
+        isImporting.value = false;
+        statusMessage.value = '';
+        importMessage.value =
+            'Timeout: Mesin absensi tidak merespons dalam 30 detik.';
+        importSuccess.value = false;
+        return;
+      }
+      try {
+        final response = await http
+            .get(Uri.parse(_webhookLatestUrl),
+                headers: {'Accept': 'application/json'})
+            .timeout(const Duration(seconds: 5));
+
+        if (response.statusCode != 200) return;
+
+        final req = jsonDecode(response.body);
+        final String? uuid = req['uuid']?.toString();
+        if (uuid != null && uuid == _lastSeenUuid) return;
+
+        final String? content = req['content']?.toString();
+        if (content == null || content.isEmpty) return;
+
+        Map<String, dynamic> payloadJson;
+        try {
+          payloadJson = jsonDecode(content);
+        } catch (_) {
+          return;
+        }
+
+        // Ambil satu pegawai sesuai PIN
+        PegawaiInfo? found;
+        if (payloadJson['data'] is List) {
+          for (final item in payloadJson['data']) {
+            if (item is Map<String, dynamic> &&
+                item['pin']?.toString() == _currentPin) {
+              found = PegawaiInfo.fromMap(item);
+              break;
+            }
+          }
+          found ??= (payloadJson['data'] as List).isNotEmpty
+              ? PegawaiInfo.fromMap(
+                  (payloadJson['data'] as List).first as Map<String, dynamic>)
+              : null;
+        } else if (payloadJson['data'] is Map<String, dynamic>) {
+          found = PegawaiInfo.fromMap(
+              payloadJson['data'] as Map<String, dynamic>);
+        } else if (payloadJson.containsKey('pin') &&
+            payloadJson.containsKey('name')) {
+          found = PegawaiInfo.fromMap(payloadJson);
+        }
+
+        if (found == null) return;
+
+        timer.cancel();
+        _lastSeenUuid = uuid;
+        isImporting.value = false;
+        statusMessage.value = '';
+        importedPegawai.value = found;
+        importSuccess.value = true;
+        importMessage.value = 'Data ditemukan!';
+      } catch (_) {}
+    });
+  }
+
+  /// Simpan [importedPegawai] ke Firestore dan update list utama.
+  Future<void> saveImportedToFirestore() async {
+    final info = importedPegawai.value;
+    if (info == null) return;
+
+    try {
+      isSavingImport.value = true;
+      importSaveMessage.value = '';
+      importSaveSuccess.value = false;
+
+      final data = info.toMap();
+      data['createdAt'] = FieldValue.serverTimestamp();
+
+      await _firestore
+          .collection(_collectionName)
+          .doc(info.pin)
+          .set(data, SetOptions(merge: true));
+
+      importSaveMessage.value = 'Pegawai berhasil ditambahkan!';
+      importSaveSuccess.value = true;
+    } catch (e) {
+      importSaveMessage.value = 'Gagal menyimpan: ${e.toString()}';
+      importSaveSuccess.value = false;
+    } finally {
+      isSavingImport.value = false;
+    }
+  }
+
+  void clearImport() {
+    _pollTimer?.cancel();
+    importedPegawai.value = null;
+    importMessage.value = '';
+    importSuccess.value = false;
+    importSaveMessage.value = '';
+    importSaveSuccess.value = false;
+    isImporting.value = false;
+    statusMessage.value = '';
+  }
+
+  // ─────────────────────────────────────────────
   //  RESET
   // ─────────────────────────────────────────────
 
@@ -630,4 +869,5 @@ class PegawaiController extends GetxController {
     deleteMessage.value = '';
     deleteSuccess.value = false;
   }
+
 }
